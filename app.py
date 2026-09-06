@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Advanced Excel & CSV VLOOKUP", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Excel Match & Row Update Tool", layout="wide", page_icon="📊")
 
-st.title("📊 प्रगत VLOOKUP वेब ॲप (Excel & CSV)")
-st.write("दोन Excel/CSV फाईल्स अपलोड करा, हवी ती शीट निवडा आणि एका क्लिकवर डेटा एकत्र करा.")
+st.title("📊 Excel Data Match & Row Update Web App")
+st.write("File 1 मधील डेटा शोधून File 2 च्या संबंधित row मध्ये टाका / अपडेट करा.")
 
 def load_data(uploaded_file, key_prefix):
     """Excel किंवा CSV फाईल वाचून डेटाफ्रेम देणारे फंक्शन"""
@@ -24,125 +24,96 @@ def load_data(uploaded_file, key_prefix):
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("१. Main File (मूळ फाईल)")
-    main_file = st.file_uploader(
-        "Main File अपलोड करा (Excel/CSV)", 
-        type=["xlsx", "xls", "csv"], 
-        key="main"
-    )
+    st.subheader("१. File 1 (ज्यामधून डेटा घ्यायचा आहे - Source)")
+    file1 = st.file_uploader("File 1 अपलोड करा", type=["xlsx", "xls", "csv"], key="file1")
 
 with col2:
-    st.subheader("२. Lookup File (माहिती शोधायची फाईल)")
-    lookup_file = st.file_uploader(
-        "Lookup File अपलोड करा (Excel/CSV)", 
-        type=["xlsx", "xls", "csv"], 
-        key="lookup"
-    )
+    st.subheader("२. File 2 (ज्यामध्ये डेटा टाकायचा आहे - Target)")
+    file2 = st.file_uploader("File 2 अपलोड करा", type=["xlsx", "xls", "csv"], key="file2")
 
-if main_file and lookup_file:
+if file1 and file2:
     try:
-        df_main, main_sheet = load_data(main_file, "main")
-        df_lookup, lookup_sheet = load_data(lookup_file, "lookup")
+        df1, _ = load_data(file1, "f1")
+        df2, _ = load_data(file2, "f2")
 
         st.markdown("---")
-        st.subheader("🔍 मॅचिंग पर्याय आणि कॉलम्स")
+        st.subheader("🔍 मॅचिंग आणि अपडेट पर्याय")
 
-        c1, c2, c3 = st.columns(3)
-
+        c1, c2 = st.columns(2)
         with c1:
-            main_key = st.selectbox(
-                "Main File मधील Key Column:",
-                options=df_main.columns,
-                help="ज्या कॉलमच्या आधारे डेटा शोधायचा आहे."
+            key1 = st.selectbox(
+                "File 1 मधील मॅचिंग Key Column:",
+                options=df1.columns,
+                help="उदा. Account No, ID, Roll No"
             )
-
         with c2:
-            lookup_key = st.selectbox(
-                "Lookup File मधील Key Column:",
-                options=df_lookup.columns,
-                help="Lookup फाईलमधील मॅच होणारा कॉलम."
+            key2 = st.selectbox(
+                "File 2 मधील मॅचिंग Key Column:",
+                options=df2.columns,
+                help="ज्या कॉलमशी File 1 चा डेटा मॅच करायचा आहे"
             )
 
-        with c3:
-            available_cols = [c for c in df_lookup.columns if c != lookup_key]
-            cols_to_fetch = st.multiselect(
-                "Lookup फाईलमधून कोणते कॉलम्स जोडायचे आहेत?",
-                options=available_cols,
-                default=available_cols[:1] if available_cols else []
+        col_source, col_target = st.columns(2)
+        with col_source:
+            source_col = st.selectbox(
+                "File 1 मधील कोणता व्हॅल्यू कॉलम घ्यायचा आहे? (Data to Copy):",
+                options=[col for col in df1.columns if col != key1]
             )
 
-        col_join, col_format = st.columns(2)
-        with col_join:
-            how_type = st.radio(
-                "मॅचिंग प्रकार (Join Type):",
-                options=["left", "inner", "outer"],
-                format_func=lambda x: {
-                    "left": "Left Join (Main फाईलमधील सर्व डेटा राहील)",
-                    "inner": "Inner Join (फक्त मॅच झालेले रेकॉर्ड्स)",
-                    "outer": "Outer Join (दोन्ही फाईल्समधील सर्व रेकॉर्ड्स)"
-                }[x],
+        with col_target:
+            action_type = st.radio(
+                "File 2 मध्ये व्हॅल्यू कशी टाकायची आहे?",
+                options=["नवीन कॉलम तयार करा (Add as New Column)", "विद्यमान कॉलम अपडेट करा (Overwrite Existing Column)"],
                 horizontal=True
             )
 
-        with col_format:
-            export_format = st.radio(
-                "डाऊनलोड फॉरमॅट निवडा:",
-                options=["Excel (.xlsx)", "CSV (.csv)"],
-                horizontal=True
-            )
-
-        if st.button("🚀 VLOOKUP चालवा / एकत्र करा", type="primary"):
-            if not cols_to_fetch:
-                st.warning("कृपया Lookup फाईलमधून किमान एक कॉलम निवडा.")
+            if action_type == "नवीन कॉलम तयार करा (Add as New Column)":
+                new_col_name = st.text_input("नवीन कॉलमचे नाव लिहा:", value=f"{source_col}_matched")
+                target_col = new_col_name
             else:
-                with st.spinner("डेटा प्रक्रिया सुरू आहे..."):
-                    # डेटा प्रकार एकसारखा करणे (Mismatch टाळण्यासाठी string मध्ये रूपांतर)
-                    df_main_proc = df_main.copy()
-                    df_lookup_proc = df_lookup.copy()
+                target_col = st.selectbox("File 2 मधील कोणता कॉलम अपडेट करायचा आहे?", options=df2.columns)
 
-                    df_main_proc[main_key] = df_main_proc[main_key].astype(str).str.strip()
-                    df_lookup_proc[lookup_key] = df_lookup_proc[lookup_key].astype(str).str.strip()
+        if st.button("🚀 डेटा मॅच करून File 2 मध्ये टाका", type="primary"):
+            with st.spinner("डेटा मॅच करून अपडेट होत आहे..."):
+                # डेटा कॉपी तयार करणे
+                df1_clean = df1.copy()
+                df2_result = df2.copy()
 
-                    # Lookup टेबलमधील आवश्यक कॉलम्स घेऊन डुप्लिकेट्स काढणे
-                    lookup_subset = df_lookup_proc[[lookup_key] + cols_to_fetch].drop_duplicates(subset=[lookup_key])
+                # मॅचिंग अचूक होण्यासाठी दोन्ही की स्ट्रिंग स्वरूपात आणि स्पेस काढून घेणे
+                df1_clean[key1] = df1_clean[key1].astype(str).str.strip()
+                df2_result[key2] = df2_result[key2].astype(str).str.strip()
 
-                    # Merge प्रक्रिया
-                    result_df = pd.merge(
-                        df_main_proc,
-                        lookup_subset,
-                        left_on=main_key,
-                        right_on=lookup_key,
-                        how=how_type
-                    )
+                # File 1 मधील key आणि source column चे डिक्शनरी मॅपिंग तयार करणे (डुप्लिकेट्स काढून)
+                df1_unique = df1_clean.drop_duplicates(subset=[key1])
+                mapping_dict = dict(zip(df1_unique[key1], df1_unique[source_col]))
 
-                    if main_key != lookup_key and lookup_key in result_df.columns:
-                        result_df.drop(columns=[lookup_key], inplace=True)
+                # File 2 मध्ये डेटा टाकणे
+                if action_type == "नवीन कॉलम तयार करा (Add as New Column)":
+                    df2_result[target_col] = df2_result[key2].map(mapping_dict)
+                else:
+                    # विद्यमान कॉलममधील डेटा अपडेट करणे (जर मॅच झाला तरच व्हॅल्यू बदलेल, नाहीतर जुनीच राहील)
+                    df2_result[target_col] = df2_result[key2].map(mapping_dict).fillna(df2_result[target_col])
 
-                    st.success("✅ VLOOKUP यशस्वीरीत्या पूर्ण झाले!")
-                    st.dataframe(result_df.head(25), use_container_width=True)
+                st.success(f"✅ डेटा यशस्वीरीत्या मॅच झाला आणि File 2 च्या '{target_col}' कॉलम/रो मध्ये अपडेट झाला!")
 
-                    # डाऊनलोड पर्याय
-                    if export_format == "Excel (.xlsx)":
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                            result_df.to_excel(writer, index=False, sheet_name="Result")
-                        output.seek(0)
-                        st.download_button(
-                            label="📥 Excel फाईल डाऊनलोड करा",
-                            data=output,
-                            file_name="Vlookup_Merged_Data.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                    else:
-                        csv_data = result_df.to_csv(index=False).encode("utf-8")
-                        st.download_button(
-                            label="📥 CSV फाईल डाऊनलोड करा",
-                            data=csv_data,
-                            file_name="Vlookup_Merged_Data.csv",
-                            mime="text/csv"
-                        )
+                # Preview दाखवणे
+                st.subheader("📋 अपडेटेड File 2 चे पूर्वावलोकन (Preview):")
+                st.dataframe(df2_result.head(25), use_container_width=True)
+
+                # डाऊनलोड पर्याय
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    df2_result.to_excel(writer, index=False, sheet_name="Updated_Data")
+                output.seek(0)
+
+                st.download_button(
+                    label="📥 अपडेट झालेली File 2 डाऊनलोड करा (Excel)",
+                    data=output,
+                    file_name="File2_Updated.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
     except Exception as e:
-        st.error(f"प्रक्रियेदरम्यान त्रुटी आली: {e}")
+        st.error(f"त्रुटी आली: {e}")
 else:
-    st.info("कृपया वरील दोन्ही फाईल्स अपलोड करा.")
+    st.info("कृपया वरील दोन्ही Excel किंवा CSV फाईल्स अपलोड करा.")
